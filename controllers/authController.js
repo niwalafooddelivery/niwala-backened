@@ -15,7 +15,7 @@ exports.signup = async (req, res) => {
       name, email, password, phone, role,
       address, latitude, longitude,
       cnicNumber, cnicFrontImage, cnicBackImage,
-      restaurantName, cuisineType, vehicleNumber,
+      restaurantName, cuisineType, vehicleNumber, profileImage,
     } = req.body;
 
     if (!name || !email || !password || !phone || !role) {
@@ -40,6 +40,7 @@ exports.signup = async (req, res) => {
       address: address || '',
       latitude: latitude || 0,
       longitude: longitude || 0,
+      profileImage: profileImage || '',
       cnicNumber: cnicNumber || '',
       cnicFrontImage: cnicFrontImage || '',
       cnicBackImage: cnicBackImage || '',
@@ -58,7 +59,14 @@ exports.signup = async (req, res) => {
         _id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
         role: user.role,
+        address: user.address,
+        profileImage: user.profileImage,
+        restaurantName: user.restaurantName,
+        restaurantImage: user.restaurantImage,
+        latitude: user.latitude,
+        longitude: user.longitude,
         approvalStatus: user.approvalStatus,
       },
       token: generateToken(user._id),
@@ -103,9 +111,11 @@ exports.login = async (req, res) => {
         phone: user.phone,
         role: user.role,
         address: user.address,
+        profileImage: user.profileImage,
         latitude: user.latitude,
         longitude: user.longitude,
         restaurantName: user.restaurantName,
+        restaurantImage: user.restaurantImage,
         approvalStatus: user.approvalStatus,
       },
       token: generateToken(user._id),
@@ -178,4 +188,60 @@ exports.resetPassword = async (req, res) => {
 // @route   GET /api/auth/me
 exports.getMe = async (req, res) => {
   res.json({ success: true, user: req.user });
+};
+
+// @desc    Update current user profile
+// @route   PUT /api/auth/profile
+exports.updateProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const name = String(req.body.name || '').trim();
+    const address = String(req.body.address || '').trim();
+    const profileImage = String(req.body.profileImage || '').trim();
+    const latitude = Number(req.body.latitude);
+    const longitude = Number(req.body.longitude);
+
+    if (!name || !address) {
+      return res.status(400).json({ success: false, message: 'Name and address are required' });
+    }
+
+    user.name = name;
+    user.address = address;
+    if (Number.isFinite(latitude)) user.latitude = latitude;
+    if (Number.isFinite(longitude)) user.longitude = longitude;
+    if (profileImage) {
+      user.profileImage = profileImage;
+      if (user.role === 'restaurant') user.restaurantImage = profileImage;
+    }
+    await user.save();
+
+    const updated = await User.findById(user._id).select('-password');
+    res.json({ success: true, message: 'Profile updated successfully', user: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Change current user password
+// @route   PUT /api/auth/password
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Current and new password are required' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user || !(await user.matchPassword(currentPassword))) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+    }
+
+    user.password = newPassword;
+    await user.save();
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };

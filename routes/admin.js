@@ -8,6 +8,7 @@ const {
   updateApproval,
   deleteUser,
   getAllOrders,
+  getAdminEarnings,
 } = require('../controllers/adminController');
 
 router.use(protect, adminOnly); // All admin routes require admin
@@ -18,5 +19,6 @@ router.get('/riders', getRiders);
 router.put('/approve/:userId', updateApproval);
 router.delete('/user/:userId', deleteUser);
 router.get('/orders', getAllOrders);
+router.get('/earnings', getAdminEarnings);
 
 module.exports = router;

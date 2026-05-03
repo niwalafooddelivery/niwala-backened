@@ -2,34 +2,53 @@ const Order = require('../models/Order');
 const User = require('../models/User');
 const Message = require('../models/Message');
 
+const RIDER_DELIVERY_FEE = 100;
+const RIDER_ADMIN_COMMISSION_RATE = 0.03;
+const RIDER_NET_RATE = 1 - RIDER_ADMIN_COMMISSION_RATE;
+
 // @desc    Rider Dashboard
 // @route   GET /api/rider/dashboard
 exports.getDashboard = async (req, res) => {
   try {
     const riderId = req.user._id;
     const totalDeliveries = await Order.countDocuments({ riderId, status: 'delivered' });
-    const activeOrder = await Order.findOne({
+    const activeOrders = await Order.find({
       riderId,
       status: { $in: ['accepted', 'preparing', 'ready', 'picked_up', 'on_the_way'] },
-    });
+    }).sort({ updatedAt: -1 });
     const incomingOrders = await Order.countDocuments({
-      riderId,
-      status: { $in: ['ready'] },
+      riderId: null,
+      declinedRiderIds: { $ne: riderId },
+      status: { $in: ['accepted', 'preparing', 'ready'] },
     });
 
     const earnings = await Order.aggregate([
       { $match: { riderId: req.user._id, status: 'delivered' } },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } },
+      {
+        $group: {
+          _id: null,
+          total: {
+            $sum: {
+              $multiply: [
+                { $ifNull: ['$deliveryCharge', RIDER_DELIVERY_FEE] },
+                RIDER_NET_RATE,
+              ],
+            },
+          },
+        },
+      },
     ]);
 
     res.json({
       success: true,
       stats: {
         totalDeliveries,
-        hasActiveOrder: !!activeOrder,
-        activeOrderId: activeOrder?._id,
+        hasActiveOrder: activeOrders.length > 0,
+        activeOrderId: activeOrders[0]?._id,
+        activeOrders: activeOrders.length,
         incomingOrders,
-        totalEarnings: (earnings[0]?.total || 0) * 0.15, // assuming 15% rider commission
+        totalEarnings: earnings[0]?.total || (totalDeliveries * RIDER_DELIVERY_FEE * RIDER_NET_RATE),
+        deliveryFee: RIDER_DELIVERY_FEE,
         isOnline: req.user.isOnline,
       },
     });
@@ -51,12 +70,13 @@ exports.toggleOnline = async (req, res) => {
   }
 };
 
-// @desc    Get incoming orders (assigned to me)
+// @desc    Get incoming orders available to this rider
 // @route   GET /api/rider/orders/incoming
 exports.getIncomingOrders = async (req, res) => {
   try {
     const orders = await Order.find({
-      riderId: req.user._id,
+      riderId: null,
+      declinedRiderIds: { $ne: req.user._id },
       status: { $in: ['ready', 'preparing', 'accepted'] },
     })
       .populate('restaurantId', 'restaurantName name address latitude longitude phone')
@@ -75,21 +95,91 @@ exports.getIncomingOrders = async (req, res) => {
   }
 };
 
-// @desc    Get my active order
-// @route   GET /api/rider/orders/active
-exports.getActiveOrder = async (req, res) => {
+// @desc    Accept an available order
+// @route   PUT /api/rider/order/:id/accept
+exports.acceptOrder = async (req, res) => {
   try {
-    const order = await Order.findOne({
-      riderId: req.user._id,
-      status: { $in: ['picked_up', 'on_the_way'] },
-    }).populate('restaurantId', 'restaurantName name address latitude longitude phone');
+    const riderId = req.user._id;
+    const existing = await Order.findById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (existing.riderId?.toString() === riderId.toString()) {
+      const assignedOrder = await Order.findById(existing._id)
+        .populate('restaurantId', 'restaurantName name address latitude longitude phone')
+        .populate('riderId', 'name phone vehicleNumber currentLatitude currentLongitude');
+      const obj = assignedOrder.toObject();
+      delete obj.customerId;
+      return res.json({ success: true, order: obj });
+    }
 
-    if (!order) return res.json({ success: true, order: null });
+    const order = await Order.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        riderId: null,
+        declinedRiderIds: { $ne: riderId },
+        status: { $in: ['accepted', 'preparing', 'ready'] },
+      },
+      { $set: { riderId } },
+      { new: true }
+    )
+      .populate('restaurantId', 'restaurantName name address latitude longitude phone')
+      .populate('riderId', 'name phone vehicleNumber currentLatitude currentLongitude');
 
-    // Hide customer info - only show delivery point
+    if (!order) {
+      return res.status(409).json({ success: false, message: 'Order is no longer available' });
+    }
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`order_${order._id}`).emit('rider_assigned', { orderId: order._id, riderId });
+      io.to(`order_${order._id}`).emit('order_status_update', { orderId: order._id, status: order.status });
+      io.to(`rider_${riderId}`).emit('new_order_assigned', order);
+    }
+
     const obj = order.toObject();
     delete obj.customerId;
     res.json({ success: true, order: obj });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Decline an available order for this rider
+// @route   PUT /api/rider/order/:id/decline
+exports.declineOrder = async (req, res) => {
+  try {
+    const order = await Order.findOneAndUpdate(
+      { _id: req.params.id, riderId: null, status: { $in: ['accepted', 'preparing', 'ready'] } },
+      { $addToSet: { declinedRiderIds: req.user._id } },
+      { new: true }
+    );
+    if (!order) return res.status(404).json({ success: false, message: 'Order not available' });
+    res.json({ success: true, message: 'Order declined' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get my active orders
+// @route   GET /api/rider/orders/active
+exports.getActiveOrder = async (req, res) => {
+  try {
+    const orders = await Order.find({
+      riderId: req.user._id,
+      status: { $in: ['accepted', 'preparing', 'ready', 'picked_up', 'on_the_way'] },
+    })
+      .populate('restaurantId', 'restaurantName name address latitude longitude phone')
+      .populate('riderId', 'name phone vehicleNumber currentLatitude currentLongitude')
+      .sort({ updatedAt: -1 });
+
+    if (!orders.length) return res.json({ success: true, count: 0, order: null, orders: [] });
+
+    // Hide customer info - only show delivery point
+    const sanitized = orders.map(o => {
+      const obj = o.toObject();
+      delete obj.customerId;
+      return obj;
+    });
+    res.json({ success: true, count: sanitized.length, order: sanitized[0], orders: sanitized });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -104,6 +194,7 @@ exports.getOrderHistory = async (req, res) => {
       status: { $in: ['delivered', 'cancelled'] },
     })
       .populate('restaurantId', 'restaurantName name address')
+      .populate('riderId', 'name phone vehicleNumber currentLatitude currentLongitude')
       .sort({ updatedAt: -1 })
       .limit(50);
 
@@ -124,7 +215,8 @@ exports.getOrderHistory = async (req, res) => {
 exports.getOrderDetails = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate('restaurantId', 'restaurantName name address latitude longitude phone');
+      .populate('restaurantId', 'restaurantName name address latitude longitude phone')
+      .populate('riderId', 'name phone vehicleNumber currentLatitude currentLongitude');
     if (!order) return res.status(404).json({ success: false, message: 'Not found' });
     if (order.riderId?.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: 'Not authorized' });
@@ -154,13 +246,31 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     order.status = status;
-    if (status === 'delivered') order.paymentStatus = 'paid';
     await order.save();
 
-    const io = req.app.get('io');
-    if (io) io.to(`order_${order._id}`).emit('order_status_update', { orderId: order._id, status });
+    const populatedOrder = await Order.findById(order._id)
+      .populate('restaurantId', 'restaurantName name address latitude longitude phone')
+      .populate('riderId', 'name phone vehicleNumber currentLatitude currentLongitude');
 
-    res.json({ success: true, order });
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`order_${order._id}`).emit('order_status_update', {
+        orderId: order._id,
+        status,
+        deliveryConfirmed: order.deliveryConfirmed,
+      });
+      if (status === 'delivered') {
+        io.to(`customer_${order.customerId}`).emit('delivery_confirmation_required', {
+          orderId: order._id,
+          title: 'Niwala Admin',
+          message: 'Your rider marked this order as delivered. Did you receive your order?',
+        });
+      }
+    }
+
+    const obj = populatedOrder.toObject();
+    delete obj.customerId;
+    res.json({ success: true, order: obj });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -202,16 +312,24 @@ exports.updateLocation = async (req, res) => {
 // @route   POST /api/rider/order/:id/messages
 exports.sendMessage = async (req, res) => {
   try {
-    const { message } = req.body;
+    const message = String(req.body.message || '').trim();
+    if (!message) return res.status(400).json({ success: false, message: 'Message required' });
+
+    const order = await Order.findById(req.params.id);
+    if (!order || order.riderId?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Chat opens after you accept this order' });
+    }
+    const isFirstMessage = await Message.countDocuments({ orderId: req.params.id }) === 0;
     const msg = await Message.create({
       orderId: req.params.id,
       senderId: req.user._id,
       senderRole: 'rider',
       message,
     });
+    const payload = { ...msg.toObject(), firstMessage: isFirstMessage };
     const io = req.app.get('io');
-    if (io) io.to(`order_${req.params.id}`).emit('new_message', msg);
-    res.status(201).json({ success: true, message: msg });
+    if (io) io.to(`order_${req.params.id}`).emit('new_message', payload);
+    res.status(201).json({ success: true, message: payload, firstMessage: isFirstMessage });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -221,6 +339,10 @@ exports.sendMessage = async (req, res) => {
 // @route   GET /api/rider/order/:id/messages
 exports.getMessages = async (req, res) => {
   try {
+    const order = await Order.findById(req.params.id);
+    if (!order || order.riderId?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Chat opens after you accept this order' });
+    }
     const messages = await Message.find({ orderId: req.params.id }).sort({ createdAt: 1 });
     res.json({ success: true, messages });
   } catch (error) {

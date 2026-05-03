@@ -5,6 +5,8 @@ const {
   getDashboard,
   toggleOnline,
   getIncomingOrders,
+  acceptOrder,
+  declineOrder,
   getActiveOrder,
   getOrderHistory,
   getOrderDetails,
@@ -22,6 +24,8 @@ router.get('/orders/incoming', getIncomingOrders);
 router.get('/orders/active', getActiveOrder);
 router.get('/orders/history', getOrderHistory);
 router.get('/order/:id', getOrderDetails);
+router.put('/order/:id/accept', acceptOrder);
+router.put('/order/:id/decline', declineOrder);
 router.put('/order/:id/status', updateOrderStatus);
 router.put('/location', updateLocation);
 router.get('/order/:id/messages', getMessages);

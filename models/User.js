@@ -33,6 +33,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  profileImage: {
+    type: String,
+    default: '',
+  },
   latitude: {
     type: Number,
     default: 0,

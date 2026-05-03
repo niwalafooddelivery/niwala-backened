@@ -21,9 +21,16 @@ const setupSocket = (io) => {
     // Real-time chat message
     socket.on('send_message', async (data) => {
       try {
-        const { orderId, senderId, senderRole, message } = data;
+        const { orderId, senderId, senderRole } = data;
+        const message = String(data.message || '').trim();
+        if (!orderId || !senderId || !senderRole || !message) return;
+
+        const isFirstMessage = await Message.countDocuments({ orderId }) === 0;
         const msg = await Message.create({ orderId, senderId, senderRole, message });
-        io.to(`order_${orderId}`).emit('new_message', msg);
+        io.to(`order_${orderId}`).emit('new_message', {
+          ...msg.toObject(),
+          firstMessage: isFirstMessage,
+        });
       } catch (err) {
         console.error('Socket message error:', err);
       }

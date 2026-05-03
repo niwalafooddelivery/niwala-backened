@@ -23,7 +23,31 @@ const orderSchema = new mongoose.Schema({
     ref: 'User',
     default: null,
   },
+  declinedRiderIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  }],
   items: [orderItemSchema],
+  subtotalAmount: {
+    type: Number,
+    default: 0,
+  },
+  discountAmount: {
+    type: Number,
+    default: 0,
+  },
+  deliveryCharge: {
+    type: Number,
+    default: 100,
+  },
+  voucherCode: {
+    type: String,
+    default: '',
+  },
+  discountPercent: {
+    type: Number,
+    default: 0,
+  },
   totalAmount: {
     type: Number,
     required: true,
@@ -49,6 +73,14 @@ const orderSchema = new mongoose.Schema({
     type: String,
     enum: ['pending', 'paid', 'failed'],
     default: 'pending',
+  },
+  deliveryConfirmed: {
+    type: Boolean,
+    default: false,
+  },
+  deliveryConfirmedAt: {
+    type: Date,
+    default: null,
   },
   status: {
     type: String,
