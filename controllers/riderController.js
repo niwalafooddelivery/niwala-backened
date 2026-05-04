@@ -7,6 +7,11 @@ const RIDER_DELIVERY_FEE = 100;
 const RIDER_ADMIN_COMMISSION_RATE = 0.03;
 const RIDER_NET_RATE = 1 - RIDER_ADMIN_COMMISSION_RATE;
 
+const getMongoId = (value) => {
+  if (!value) return '';
+  return (value._id || value).toString();
+};
+
 // @desc    Rider Dashboard
 // @route   GET /api/rider/dashboard
 exports.getDashboard = async (req, res) => {
@@ -235,7 +240,7 @@ exports.getOrderDetails = async (req, res) => {
       .populate('restaurantId', 'restaurantName name address latitude longitude phone')
       .populate('riderId', 'name phone vehicleNumber currentLatitude currentLongitude');
     if (!order) return res.status(404).json({ success: false, message: 'Not found' });
-    if (order.riderId?.toString() !== req.user._id.toString()) {
+    if (getMongoId(order.riderId) !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: 'Not authorized' });
     }
     const obj = order.toObject();
