@@ -13,6 +13,11 @@ const setupSocket = (io) => {
       console.log(`Socket ${socket.id} joined order_${orderId}`);
     });
 
+    socket.on('join_restaurant_rider_chat', (orderId) => {
+      socket.join(`order_${orderId}_restaurant_rider`);
+      console.log(`Socket ${socket.id} joined order_${orderId}_restaurant_rider`);
+    });
+
     // Join role-specific room (for notifications)
     socket.on('join_role', ({ role, userId }) => {
       socket.join(`${role}_${userId}`);
@@ -27,7 +32,7 @@ const setupSocket = (io) => {
         if (!orderId || !senderId || !senderRole || !message) return;
 
         const isFirstMessage = await Message.countDocuments({ orderId }) === 0;
-        const msg = await Message.create({ orderId, senderId, senderRole, message });
+        const msg = await Message.create({ orderId, senderId, senderRole, message, conversationType: 'customer_rider' });
         io.to(`order_${orderId}`).emit('new_message', {
           ...msg.toObject(),
           firstMessage: isFirstMessage,

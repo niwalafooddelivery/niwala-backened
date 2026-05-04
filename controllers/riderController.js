@@ -348,11 +348,15 @@ exports.sendMessage = async (req, res) => {
     if (!order || order.riderId?.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: 'Chat opens after you accept this order' });
     }
-    const isFirstMessage = await Message.countDocuments({ orderId: req.params.id }) === 0;
+    const isFirstMessage = await Message.countDocuments({
+      orderId: req.params.id,
+      conversationType: { $ne: 'restaurant_rider' },
+    }) === 0;
     const msg = await Message.create({
       orderId: req.params.id,
       senderId: req.user._id,
       senderRole: 'rider',
+      conversationType: 'customer_rider',
       message,
     });
     const payload = { ...msg.toObject(), firstMessage: isFirstMessage };
@@ -372,8 +376,61 @@ exports.getMessages = async (req, res) => {
     if (!order || order.riderId?.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: 'Chat opens after you accept this order' });
     }
-    const messages = await Message.find({ orderId: req.params.id }).sort({ createdAt: 1 });
+    const messages = await Message.find({
+      orderId: req.params.id,
+      conversationType: { $ne: 'restaurant_rider' },
+    }).sort({ createdAt: 1 });
     res.json({ success: true, messages });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Rider/restaurant chat history
+// @route   GET /api/rider/order/:id/restaurant-messages
+exports.getRestaurantMessages = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order || order.riderId?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Chat opens after you accept this order' });
+    }
+    const messages = await Message.find({
+      orderId: req.params.id,
+      conversationType: 'restaurant_rider',
+    }).sort({ createdAt: 1 });
+    res.json({ success: true, messages });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Rider sends message to restaurant
+// @route   POST /api/rider/order/:id/restaurant-messages
+exports.sendRestaurantMessage = async (req, res) => {
+  try {
+    const message = String(req.body.message || '').trim();
+    if (!message) return res.status(400).json({ success: false, message: 'Message required' });
+
+    const order = await Order.findById(req.params.id);
+    if (!order || order.riderId?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Chat opens after you accept this order' });
+    }
+
+    const isFirstMessage = await Message.countDocuments({
+      orderId: req.params.id,
+      conversationType: 'restaurant_rider',
+    }) === 0;
+    const msg = await Message.create({
+      orderId: req.params.id,
+      senderId: req.user._id,
+      senderRole: 'rider',
+      conversationType: 'restaurant_rider',
+      message,
+    });
+    const payload = { ...msg.toObject(), firstMessage: isFirstMessage };
+    const io = req.app.get('io');
+    if (io) io.to(`order_${req.params.id}_restaurant_rider`).emit('new_restaurant_rider_message', payload);
+    res.status(201).json({ success: true, message: payload, firstMessage: isFirstMessage });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

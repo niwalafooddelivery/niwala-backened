@@ -13,8 +13,13 @@ const messageSchema = new mongoose.Schema({
   },
   senderRole: {
     type: String,
-    enum: ['customer', 'rider'],
+    enum: ['customer', 'rider', 'restaurant'],
     required: true,
+  },
+  conversationType: {
+    type: String,
+    enum: ['customer_rider', 'restaurant_rider'],
+    default: 'customer_rider',
   },
   message: {
     type: String,

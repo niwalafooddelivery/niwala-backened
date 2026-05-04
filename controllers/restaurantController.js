@@ -1,6 +1,7 @@
 const FoodItem = require('../models/FoodItem');
 const Order = require('../models/Order');
 const User = require('../models/User');
+const Message = require('../models/Message');
 
 const RESTAURANT_ADMIN_COMMISSION_RATE = 0.05;
 const RESTAURANT_NET_RATE = 1 - RESTAURANT_ADMIN_COMMISSION_RATE;
@@ -201,6 +202,62 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     res.json({ success: true, order: populatedOrder });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Restaurant/rider chat history
+// @route   GET /api/restaurant/orders/:id/rider-messages
+exports.getRiderMessages = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order || order.restaurantId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+    if (!order.riderId) {
+      return res.status(403).json({ success: false, message: 'Chat opens after a rider accepts this order' });
+    }
+    const messages = await Message.find({
+      orderId: req.params.id,
+      conversationType: 'restaurant_rider',
+    }).sort({ createdAt: 1 });
+    res.json({ success: true, messages });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Restaurant sends message to rider
+// @route   POST /api/restaurant/orders/:id/rider-messages
+exports.sendRiderMessage = async (req, res) => {
+  try {
+    const message = String(req.body.message || '').trim();
+    if (!message) return res.status(400).json({ success: false, message: 'Message required' });
+
+    const order = await Order.findById(req.params.id);
+    if (!order || order.restaurantId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+    if (!order.riderId) {
+      return res.status(403).json({ success: false, message: 'Chat opens after a rider accepts this order' });
+    }
+
+    const isFirstMessage = await Message.countDocuments({
+      orderId: req.params.id,
+      conversationType: 'restaurant_rider',
+    }) === 0;
+    const msg = await Message.create({
+      orderId: req.params.id,
+      senderId: req.user._id,
+      senderRole: 'restaurant',
+      conversationType: 'restaurant_rider',
+      message,
+    });
+    const payload = { ...msg.toObject(), firstMessage: isFirstMessage };
+    const io = req.app.get('io');
+    if (io) io.to(`order_${req.params.id}_restaurant_rider`).emit('new_restaurant_rider_message', payload);
+    res.status(201).json({ success: true, message: payload, firstMessage: isFirstMessage });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

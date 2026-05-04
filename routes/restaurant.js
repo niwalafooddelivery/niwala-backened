@@ -10,6 +10,8 @@ const {
   deleteFoodItem,
   getRestaurantOrders,
   updateOrderStatus,
+  getRiderMessages,
+  sendRiderMessage,
 } = require('../controllers/restaurantController');
 
 router.use(protect, checkRole('restaurant'));
@@ -21,5 +23,7 @@ router.put('/food/:id', upload.single('image'), updateFoodItem);
 router.delete('/food/:id', deleteFoodItem);
 router.get('/orders', getRestaurantOrders);
 router.put('/orders/:id', updateOrderStatus);
+router.get('/orders/:id/rider-messages', getRiderMessages);
+router.post('/orders/:id/rider-messages', sendRiderMessage);
 
 module.exports = router;
