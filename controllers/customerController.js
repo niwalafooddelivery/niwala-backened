@@ -12,6 +12,11 @@ const VOUCHERS = {
 };
 const DELIVERY_CHARGE = 100;
 
+const getMongoId = (value) => {
+  if (!value) return '';
+  return (value._id || value).toString();
+};
+
 const normalizeRestaurant = (restaurant) => {
   if (!restaurant) return null;
   if (typeof restaurant !== 'object') {
@@ -295,7 +300,7 @@ exports.getOrderDetails = async (req, res) => {
       .populate('riderId', 'name phone vehicleNumber currentLatitude currentLongitude');
 
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-    if (order.customerId.toString() !== req.user._id.toString()) {
+    if (getMongoId(order.customerId) !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: 'Not authorized' });
     }
     res.json({ success: true, order });
