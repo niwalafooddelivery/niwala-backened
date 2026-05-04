@@ -131,7 +131,23 @@ exports.acceptOrder = async (req, res) => {
 
     const io = req.app.get('io');
     if (io) {
-      io.to(`order_${order._id}`).emit('rider_assigned', { orderId: order._id, riderId });
+      const riderLat = Number(order.riderId?.currentLatitude || req.user.currentLatitude || 0);
+      const riderLng = Number(order.riderId?.currentLongitude || req.user.currentLongitude || 0);
+      io.to(`order_${order._id}`).emit('rider_assigned', {
+        orderId: order._id,
+        riderId,
+        riderName: order.riderId?.name || '',
+        riderPhone: order.riderId?.phone || '',
+        latitude: riderLat,
+        longitude: riderLng,
+      });
+      if (riderLat !== 0 && riderLng !== 0) {
+        io.to(`order_${order._id}`).emit('rider_location_update', {
+          orderId: order._id,
+          latitude: riderLat,
+          longitude: riderLng,
+        });
+      }
       io.to(`order_${order._id}`).emit('order_status_update', { orderId: order._id, status: order.status });
       io.to(`rider_${riderId}`).emit('new_order_assigned', order);
     }
