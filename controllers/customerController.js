@@ -17,6 +17,21 @@ const getMongoId = (value) => {
   return (value._id || value).toString();
 };
 
+const attachCustomerUnreadCounts = async (orders) => {
+  const list = Array.isArray(orders) ? orders : [orders];
+  await Promise.all(list.map(async (order) => {
+    if (!order) return;
+    const orderId = order._id || order.id;
+    order.customerRiderUnreadCount = await Message.countDocuments({
+      orderId,
+      conversationType: { $ne: 'restaurant_rider' },
+      senderRole: { $ne: 'customer' },
+      readBy: { $ne: 'customer' },
+    });
+  }));
+  return Array.isArray(orders) ? list : list[0];
+};
+
 const normalizeRestaurant = (restaurant) => {
   if (!restaurant) return null;
   if (typeof restaurant !== 'object') {
@@ -252,7 +267,9 @@ exports.getMyOrders = async (req, res) => {
       .populate('restaurantId', 'restaurantName name address')
       .populate('riderId', 'name phone vehicleNumber currentLatitude currentLongitude')
       .sort({ createdAt: -1 });
-    res.json({ success: true, count: orders.length, orders });
+    const withUnread = orders.map(o => o.toObject());
+    await attachCustomerUnreadCounts(withUnread);
+    res.json({ success: true, count: withUnread.length, orders: withUnread });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -303,7 +320,9 @@ exports.getOrderDetails = async (req, res) => {
     if (getMongoId(order.customerId) !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: 'Not authorized' });
     }
-    res.json({ success: true, order });
+    const obj = order.toObject();
+    await attachCustomerUnreadCounts(obj);
+    res.json({ success: true, order: obj });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -388,6 +407,7 @@ exports.sendMessage = async (req, res) => {
       senderId: req.user._id,
       senderRole: req.user.role,
       conversationType: 'customer_rider',
+      readBy: ['customer'],
       message,
     });
     const payload = { ...msg.toObject(), firstMessage: isFirstMessage };
@@ -396,6 +416,28 @@ exports.sendMessage = async (req, res) => {
     if (io) io.to(`order_${req.params.id}`).emit('new_message', payload);
 
     res.status(201).json({ success: true, message: payload, firstMessage: isFirstMessage });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Mark customer/rider chat read
+// @route   PUT /api/customer/order/:id/messages/read
+exports.markOrderMessagesRead = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order || order.customerId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+    await Message.updateMany(
+      {
+        orderId: req.params.id,
+        conversationType: { $ne: 'restaurant_rider' },
+        senderRole: { $ne: 'customer' },
+      },
+      { $addToSet: { readBy: 'customer' } }
+    );
+    res.json({ success: true, message: 'Messages marked read' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

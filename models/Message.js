@@ -21,6 +21,10 @@ const messageSchema = new mongoose.Schema({
     enum: ['customer_rider', 'restaurant_rider'],
     default: 'customer_rider',
   },
+  readBy: [{
+    type: String,
+    enum: ['customer', 'rider', 'restaurant'],
+  }],
   message: {
     type: String,
     required: true,

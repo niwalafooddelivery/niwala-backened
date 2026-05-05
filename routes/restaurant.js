@@ -12,6 +12,7 @@ const {
   updateOrderStatus,
   getRiderMessages,
   sendRiderMessage,
+  markRiderMessagesRead,
 } = require('../controllers/restaurantController');
 
 router.use(protect, checkRole('restaurant'));
@@ -25,5 +26,6 @@ router.get('/orders', getRestaurantOrders);
 router.put('/orders/:id', updateOrderStatus);
 router.get('/orders/:id/rider-messages', getRiderMessages);
 router.post('/orders/:id/rider-messages', sendRiderMessage);
+router.put('/orders/:id/rider-messages/read', markRiderMessagesRead);
 
 module.exports = router;

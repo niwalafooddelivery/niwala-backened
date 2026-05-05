@@ -14,8 +14,10 @@ const {
   updateLocation,
   sendMessage,
   getMessages,
+  markMessagesRead,
   getRestaurantMessages,
   sendRestaurantMessage,
+  markRestaurantMessagesRead,
 } = require('../controllers/riderController');
 
 router.use(protect, checkRole('rider'));
@@ -32,7 +34,9 @@ router.put('/order/:id/status', updateOrderStatus);
 router.put('/location', updateLocation);
 router.get('/order/:id/messages', getMessages);
 router.post('/order/:id/messages', sendMessage);
+router.put('/order/:id/messages/read', markMessagesRead);
 router.get('/order/:id/restaurant-messages', getRestaurantMessages);
 router.post('/order/:id/restaurant-messages', sendRestaurantMessage);
+router.put('/order/:id/restaurant-messages/read', markRestaurantMessagesRead);
 
 module.exports = router;

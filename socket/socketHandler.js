@@ -32,7 +32,14 @@ const setupSocket = (io) => {
         if (!orderId || !senderId || !senderRole || !message) return;
 
         const isFirstMessage = await Message.countDocuments({ orderId }) === 0;
-        const msg = await Message.create({ orderId, senderId, senderRole, message, conversationType: 'customer_rider' });
+        const msg = await Message.create({
+          orderId,
+          senderId,
+          senderRole,
+          message,
+          conversationType: 'customer_rider',
+          readBy: [senderRole],
+        });
         io.to(`order_${orderId}`).emit('new_message', {
           ...msg.toObject(),
           firstMessage: isFirstMessage,

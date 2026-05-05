@@ -12,6 +12,7 @@ const {
   confirmDelivery,
   getOrderMessages,
   sendMessage,
+  markOrderMessagesRead,
 } = require('../controllers/customerController');
 
 router.use(protect, checkRole('customer'));
@@ -26,5 +27,6 @@ router.put('/order/:id/confirm-delivery', confirmDelivery);
 router.delete('/order/:id', cancelPendingOrder);
 router.get('/order/:id/messages', getOrderMessages);
 router.post('/order/:id/messages', sendMessage);
+router.put('/order/:id/messages/read', markOrderMessagesRead);
 
 module.exports = router;

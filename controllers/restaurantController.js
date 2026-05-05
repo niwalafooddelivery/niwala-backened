@@ -6,6 +6,21 @@ const Message = require('../models/Message');
 const RESTAURANT_ADMIN_COMMISSION_RATE = 0.05;
 const RESTAURANT_NET_RATE = 1 - RESTAURANT_ADMIN_COMMISSION_RATE;
 
+const attachRestaurantUnreadCounts = async (orders) => {
+  const list = Array.isArray(orders) ? orders : [orders];
+  await Promise.all(list.map(async (order) => {
+    if (!order) return;
+    const orderId = order._id || order.id;
+    order.restaurantRiderUnreadCount = await Message.countDocuments({
+      orderId,
+      conversationType: 'restaurant_rider',
+      senderRole: { $ne: 'restaurant' },
+      readBy: { $ne: 'restaurant' },
+    });
+  }));
+  return Array.isArray(orders) ? list : list[0];
+};
+
 // @desc    Restaurant Dashboard
 // @route   GET /api/restaurant/dashboard
 exports.getDashboard = async (req, res) => {
@@ -155,7 +170,9 @@ exports.getRestaurantOrders = async (req, res) => {
       .populate('riderId', 'name phone')
       .sort({ createdAt: -1 });
 
-    res.json({ success: true, count: orders.length, orders });
+    const withUnread = orders.map(o => o.toObject());
+    await attachRestaurantUnreadCounts(withUnread);
+    res.json({ success: true, count: withUnread.length, orders: withUnread });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -252,12 +269,35 @@ exports.sendRiderMessage = async (req, res) => {
       senderId: req.user._id,
       senderRole: 'restaurant',
       conversationType: 'restaurant_rider',
+      readBy: ['restaurant'],
       message,
     });
     const payload = { ...msg.toObject(), firstMessage: isFirstMessage };
     const io = req.app.get('io');
     if (io) io.to(`order_${req.params.id}_restaurant_rider`).emit('new_restaurant_rider_message', payload);
     res.status(201).json({ success: true, message: payload, firstMessage: isFirstMessage });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Mark restaurant/rider chat read
+// @route   PUT /api/restaurant/orders/:id/rider-messages/read
+exports.markRiderMessagesRead = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order || order.restaurantId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+    await Message.updateMany(
+      {
+        orderId: req.params.id,
+        conversationType: 'restaurant_rider',
+        senderRole: { $ne: 'restaurant' },
+      },
+      { $addToSet: { readBy: 'restaurant' } }
+    );
+    res.json({ success: true, message: 'Messages marked read' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
