@@ -70,7 +70,7 @@ app.use((req, res) => {
 setupSocket(io);
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 8080; // Railway uses 8080 or provides via env
 
 const startServer = async () => {
   try {
